@@ -1,0 +1,192 @@
+{
+  "name": "Smart Pantry MVP — 01 Captura Telegram + Gemini OCR + Supabase",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "node-telegram-trigger",
+      "name": "Telegram Trigger (RF01)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message.photo ? 'photo' : 'text' }}",
+              "rightValue": "photo",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "node-route-photo-or-command",
+      "name": "É Foto ou Comando?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.photo[$json.message.photo.length - 1].file_id }}"
+      },
+      "id": "node-telegram-get-file",
+      "name": "Baixar Foto do Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [700, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_INTERNAL_URL || 'http://backend:3001' }}/api/ocr/analyze",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "image",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "autoSave",
+              "value": "true"
+            },
+            {
+              "name": "chatId",
+              "value": "={{ $('Telegram Trigger (RF01)').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 9000
+        }
+      },
+      "id": "node-backend-gemini-ocr",
+      "name": "Gemini Vision OCR + Salvar (RF02/RF04)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 180]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger (RF01)').item.json.message.chat.id }}",
+        "text": "=✅ *Leitura Óptica Concluída (Gemini Vision)*\n\n📦 *Produto:* {{ $json.extracted.produto }}\n🏷️ *Categoria:* {{ $json.extracted.categoria }}\n📅 *Validade:* {{ $json.extracted.data_validade }}\n🎯 *Confiança OCR:* {{ $json.extracted.confianca_ocr }}\n🔍 *Obs:* {{ $json.extracted.lote_ou_obs }}\n\nSalvo automaticamente na sua despensa (ID #{{ $json.savedItem?.id }}). Envie `/estoque` para listar ou `/consumido {{ $json.savedItem?.id }}` para dar baixa.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-telegram-confirm",
+      "name": "Responder Confirmação (RF03)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1180, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_INTERNAL_URL || 'http://backend:3001' }}/api/chat/command",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.message.chat.id }}\",\n  \"text\": {{ JSON.stringify($json.message.text || '') }}\n}"
+      },
+      "id": "node-backend-command",
+      "name": "Executar Comando Chat (RF05)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 420]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger (RF01)').item.json.message.chat.id }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-telegram-reply-cmd",
+      "name": "Enviar Resposta Comando",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [940, 420]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger (RF01)": {
+      "main": [
+        [
+          {
+            "node": "É Foto ou Comando?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Foto ou Comando?": {
+      "main": [
+        [
+          {
+            "node": "Baixar Foto do Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Executar Comando Chat (RF05)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar Foto do Telegram": {
+      "main": [
+        [
+          {
+            "node": "Gemini Vision OCR + Salvar (RF02/RF04)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Vision OCR + Salvar (RF02/RF04)": {
+      "main": [
+        [
+          {
+            "node": "Responder Confirmação (RF03)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar Comando Chat (RF05)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Resposta Comando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Sao_Paulo"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "name": "Smart Pantry MVP — 02 Cron Diário 00:00 + Curadoria Receitas IA",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-midnight",
+      "name": "Schedule Trigger 00:00 (RF06)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_INTERNAL_URL || 'http://backend:3001' }}/api/cron/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"source\": \"n8n_schedule_00h00\",\n  \"dispatchExternal\": true\n}",
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "node-run-cron-pipeline",
+      "name": "Executar Varredura & Curadoria Gemini (RF06/RF07)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "continueOnFail": true,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.expiringCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "node-has-expiring",
+      "name": "Existem Itens <= 5 dias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [740, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.formattedMarkdown }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-telegram-dispatch-alert",
+      "name": "Disparo Ativo Telegram (RF08)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "continueOnFail": true,
+      "position": [1000, 220]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger 00:00 (RF06)": {
+      "main": [
+        [
+          {
+            "node": "Executar Varredura & Curadoria Gemini (RF06/RF07)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar Varredura & Curadoria Gemini (RF06/RF07)": {
+      "main": [
+        [
+          {
+            "node": "Existem Itens <= 5 dias?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existem Itens <= 5 dias?": {
+      "main": [
+        [
+          {
+            "node": "Disparo Ativo Telegram (RF08)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Sao_Paulo",
+    "errorWorkflow": ""
+  }
+}
