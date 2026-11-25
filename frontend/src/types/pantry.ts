@@ -109,6 +109,7 @@ export interface HealthStatus {
   status: 'ok';
   timestamp: string;
   storageMode: 'supabase' | 'local-json';
+  serverless?: boolean;
   geminiConfigured: boolean;
   geminiModel: string;
   telegramConfigured: boolean;

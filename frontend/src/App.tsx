@@ -15,6 +15,7 @@ import type {
   HealthStatus,
   OcrExtractionResult,
   PantryCategory,
+  PantryItem,
   PendingConfirmationState,
   PresetSample,
   WeeklySummaryReport,
@@ -28,14 +29,31 @@ import {
 } from './utils/date';
 import { compressImageForVision } from './utils/image';
 
+const LOCAL_STORAGE_KEY = 'despensaplus_inventory_v1';
+
+function loadInitialInventory(): EnrichedPantryItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PantryItem[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map(enrichPantryItem);
+      }
+    }
+  } catch {
+    // fallback para seed inicial
+  }
+  return INITIAL_DEMO_INVENTORY.map(enrichPantryItem);
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('bot');
   const [backendOnline, setBackendOnline] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [inventory, setInventory] = useState<EnrichedPantryItem[]>(() =>
-    INITIAL_DEMO_INVENTORY.map(enrichPantryItem)
-  );
-  const [nextDemoId, setNextDemoId] = useState(200);
+  const [inventory, setInventory] = useState<EnrichedPantryItem[]>(loadInitialInventory);
+  const [nextLocalId, setNextLocalId] = useState(200);
+
+  const isPersistentBackend = backendOnline && !health?.serverless;
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -43,14 +61,13 @@ export default function App() {
       sender: 'bot',
       timestamp: nowTime(),
       type: 'text',
-      text: '👋 Olá! Eu sou o seu **Assistente Inteligente de Despensa**.\n\n📸 **Como usar:** Envie uma foto da embalagem mostrando a data de validade (ou clique em uma amostra ao lado) que o backend aciona o **Gemini Vision OCR** e persiste no **Supabase**!\n\n💬 **Comandos rápidos:**\n• `/estoque` — Lista seus itens ativos ordenados por vencimento\n• `/consumido <id ou nome>` — Dá baixa no item consumido\n• `/resumo` — Exibe métricas da despensa\n• `/alerta` — Dispara a curadoria de receitas da meia-noite',
+      text: '👋 Olá! Eu sou o seu **Assistente Inteligente de Despensa**.\n\n📸 **Como usar:** Envie ou arraste uma foto de qualquer alimento ou embalagem que o **Gemini Vision** identifica o item e a validade automaticamente!\n\n💬 **Comandos rápidos:**\n• `/estoque` — Lista seus itens ativos ordenados por vencimento\n• `/consumido <id ou nome>` — Dá baixa no item consumido\n• `/resumo` — Exibe métricas da despensa\n• `/alerta` — Dispara a curadoria de receitas da meia-noite',
     },
   ]);
 
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingConfirmationState | null>(null);
-  const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
 
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [activeCronStep, setActiveCronStep] = useState(0);
@@ -60,16 +77,21 @@ export default function App() {
 
   const loadBackendData = useCallback(async () => {
     try {
-      const [healthRes, pantryRes, logsRes] = await Promise.all([
-        apiClient.getHealth(),
-        apiClient.listPantry(),
-        apiClient.getCronLogs(),
-      ]);
+      const healthRes = await apiClient.getHealth();
       setHealth(healthRes);
       setBackendOnline(true);
-      setInventory(pantryRes.items);
-      if (logsRes.logs.length > 0) setCronLogs(logsRes.logs);
-      if (logsRes.lastRun) setLastCronResult(logsRes.lastRun);
+
+      // No backend Express completo, carrega inventário e logs do servidor.
+      // No modo Vercel Serverless (sem DB externo), mantém inventário sincronizado no localStorage.
+      if (!healthRes.serverless) {
+        const [pantryRes, logsRes] = await Promise.all([
+          apiClient.listPantry(),
+          apiClient.getCronLogs(),
+        ]);
+        setInventory(pantryRes.items);
+        if (logsRes.logs.length > 0) setCronLogs(logsRes.logs);
+        if (logsRes.lastRun) setLastCronResult(logsRes.lastRun);
+      }
     } catch {
       setBackendOnline(false);
       setHealth(null);
@@ -79,6 +101,16 @@ export default function App() {
   useEffect(() => {
     void loadBackendData();
   }, [loadBackendData]);
+
+  useEffect(() => {
+    if (!isPersistentBackend) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(inventory));
+      } catch {
+        // ignora erro de quota
+      }
+    }
+  }, [inventory, isPersistentBackend]);
 
   const activeItems = useMemo(
     () => inventory.filter((i) => i.computedStatus === 'Em estoque'),
@@ -137,13 +169,7 @@ export default function App() {
     }, 950);
   };
 
-  const handleConfigureGemini = async (apiKey: string, model: string) => {
-    await apiClient.configureGemini(apiKey, model);
-    await loadBackendData();
-  };
-
   const handleRealImageUpload = (file: File) => {
-    setLastUploadedFile(file);
     void (async () => {
       setIsProcessingOCR(true);
       try {
@@ -166,23 +192,21 @@ export default function App() {
           extracted = response.extracted;
         } else {
           extracted = {
-            produto: 'Backend offline',
+            produto:
+              file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ') ||
+              'Produto Alimentício Identificado',
             categoria: 'Mercearia',
-            data_validade: addDaysToToday(4),
-            confianca_ocr: 'Offline',
-            lote_ou_obs: 'Inicie o backend e configure a GEMINI_API_KEY para reconhecimento real.',
+            data_validade: addDaysToToday(5),
+            confianca_ocr: 'Demo',
+            lote_ou_obs:
+              'Backend indisponível no momento — configure GEMINI_API_KEY nas variáveis de ambiente.',
             aiMode: 'fallback',
-            latencyMs: 300,
-            requiresApiKey: true,
+            latencyMs: 400,
           };
         }
 
         const botMessageId = `bot-ocr-${Date.now()}`;
-        if (!extracted.requiresApiKey) {
-          setPendingConfirmation({ messageId: botMessageId, extracted });
-        } else {
-          setPendingConfirmation(null);
-        }
+        setPendingConfirmation({ messageId: botMessageId, extracted });
         setChatMessages((prev) => [
           ...prev,
           {
@@ -217,7 +241,7 @@ export default function App() {
 
     try {
       let saved: EnrichedPantryItem;
-      if (backendOnline) {
+      if (isPersistentBackend) {
         const res = await apiClient.createPantryItem({
           produto: editedProduct,
           categoria: extracted.categoria,
@@ -228,8 +252,8 @@ export default function App() {
         saved = res.item;
         setInventory((prev) => [saved, ...prev]);
       } else {
-        const id = nextDemoId;
-        setNextDemoId((n) => n + 1);
+        const id = nextLocalId;
+        setNextLocalId((n) => n + 1);
         saved = enrichPantryItem({
           id,
           user_id: 'usr_telegram_99412',
@@ -296,17 +320,17 @@ export default function App() {
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     try {
-      await wait(350);
+      await wait(300);
       setActiveCronStep(2);
-      await wait(350);
+      await wait(300);
       setActiveCronStep(3);
-      await wait(350);
+      await wait(300);
       setActiveCronStep(4);
 
       if (backendOnline) {
-        const result = await apiClient.runCron('web_dashboard');
+        const result = await apiClient.runCron('web_dashboard', inventory);
         setActiveCronStep(5);
-        await wait(300);
+        await wait(250);
 
         setLastCronResult(result);
         if (result.logs && result.logs.length > 0) {
@@ -373,36 +397,15 @@ export default function App() {
         };
 
         setActiveCronStep(5);
-        await wait(300);
+        await wait(250);
 
-        const offlineResult: CronRunResult = {
+        setLastCronResult({
           timestamp: nowTime(),
           expiringCount: targetExpiring.length,
           otherCount: otherValid.length,
           expiringItems: targetExpiring,
           aiData: fallbackData,
-        };
-        setLastCronResult(offlineResult);
-        setCronLogs([
-          {
-            time: `${nowTime()}:01`,
-            node: 'Schedule Trigger (Offline Demo)',
-            status: 'OK',
-            detail: 'Simulação iniciada localmente',
-          },
-          {
-            time: `${nowTime()}:02`,
-            node: 'Filtro <= 5 dias',
-            status: 'OK',
-            detail: `${targetExpiring.length} item(ns) crítico(s) cruzados com ${otherValid.length} válidos`,
-          },
-          {
-            time: `${nowTime()}:03`,
-            node: 'Curadoria Demo',
-            status: 'WARN',
-            detail: 'Inicie o backend + GEMINI_API_KEY para receitas geradas em tempo real pelo Gemini',
-          },
-        ]);
+        });
         setChatMessages((prev) => [
           ...prev,
           {
@@ -419,7 +422,7 @@ export default function App() {
       if (switchToChat) setActiveTab('bot');
     } finally {
       setIsRunningCron(false);
-      setTimeout(() => setActiveCronStep(0), 1200);
+      setTimeout(() => setActiveCronStep(0), 1000);
     }
   };
 
@@ -440,7 +443,7 @@ export default function App() {
 
     const lower = rawText.toLowerCase();
 
-    if (backendOnline) {
+    if (isPersistentBackend) {
       try {
         const res = await apiClient.sendChatCommand(rawText);
         if (res.updatedItem) {
@@ -477,7 +480,7 @@ export default function App() {
         ]);
         return;
       } catch {
-        // Segue para tratamento local se a chamada falhar
+        // segue para tratamento local
       }
     }
 
@@ -554,6 +557,21 @@ export default function App() {
       return;
     }
 
+    if (lower === '/resumo') {
+      const consumedCount = inventory.filter((i) => i.computedStatus === 'Consumido').length;
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `bot-resumo-${Date.now()}`,
+          sender: 'bot',
+          timestamp: nowTime(),
+          type: 'text',
+          text: `📊 **Resumo da sua Despensa:**\n• 🟢 Em estoque: **${activeItems.length}**\n• ⚠️ Vencendo em ≤ 5 dias: **${expiringSoonItems.length}**\n• 🍽️ Consumidos: **${consumedCount}**\n• 🔴 Vencidos: **${expiredItems.length}**`,
+        },
+      ]);
+      return;
+    }
+
     setChatMessages((prev) => [
       ...prev,
       {
@@ -561,7 +579,7 @@ export default function App() {
         sender: 'bot',
         timestamp: nowTime(),
         type: 'text',
-        text: '🤖 **Comandos suportados:**\n• Envie uma **foto** da embalagem para OCR\n• `/estoque` — Lista o estoque ativo\n• `/consumido <id ou nome>` — Dá baixa no item\n• `/alerta` — Dispara o cruzamento de receitas IA',
+        text: '🤖 **Comandos suportados:**\n• Envie uma **foto** de alimento ou embalagem\n• `/estoque` — Lista o estoque ativo\n• `/consumido <id ou nome>` — Dá baixa no item\n• `/resumo` — Exibe indicadores\n• `/alerta` — Dispara o cruzamento de receitas IA',
       },
     ]);
   };
@@ -574,7 +592,7 @@ export default function App() {
     categoria: PantryCategory;
     diasRestantes: number;
   }) => {
-    if (backendOnline) {
+    if (isPersistentBackend) {
       const res = await apiClient.createPantryItem({
         produto: payload.produto,
         categoria: payload.categoria,
@@ -585,8 +603,8 @@ export default function App() {
       return;
     }
 
-    const id = nextDemoId;
-    setNextDemoId((n) => n + 1);
+    const id = nextLocalId;
+    setNextLocalId((n) => n + 1);
     const created = enrichPantryItem({
       id,
       user_id: 'usr_telegram_99412',
@@ -601,7 +619,7 @@ export default function App() {
   };
 
   const handleShiftItemDate = async (id: number, deltaDays: number) => {
-    if (backendOnline) {
+    if (isPersistentBackend) {
       const res = await apiClient.shiftItemDate(id, deltaDays);
       setInventory((prev) => prev.map((i) => (i.id === id ? res.item : i)));
       return;
@@ -631,7 +649,7 @@ export default function App() {
     if (!target) return;
     const nextStatus = target.status === 'Consumido' ? 'Em estoque' : 'Consumido';
 
-    if (backendOnline) {
+    if (isPersistentBackend) {
       const res = await apiClient.updateItemStatus(id, nextStatus);
       setInventory((prev) => prev.map((i) => (i.id === id ? res.item : i)));
       return;
@@ -643,14 +661,14 @@ export default function App() {
   };
 
   const handleDeleteItem = async (id: number) => {
-    if (backendOnline) {
+    if (isPersistentBackend) {
       await apiClient.deleteItem(id);
     }
     setInventory((prev) => prev.filter((i) => i.id !== id));
   };
 
   const handleLoadWeeklySummary = async () => {
-    if (backendOnline) {
+    if (isPersistentBackend) {
       try {
         const report = await apiClient.getWeeklySummary();
         setWeeklySummary(report);
@@ -701,14 +719,8 @@ export default function App() {
             chatMessages={chatMessages}
             isProcessingOCR={isProcessingOCR}
             pendingConfirmation={pendingConfirmation}
-            backendOnline={backendOnline}
             geminiConfigured={Boolean(health?.geminiConfigured)}
             geminiModel={health?.geminiModel || 'gemini-3.5-flash-lite'}
-            hasLastUploadedPhoto={Boolean(lastUploadedFile)}
-            onConfigureGemini={handleConfigureGemini}
-            onReanalyzeLastPhoto={() => {
-              if (lastUploadedFile) handleRealImageUpload(lastUploadedFile);
-            }}
             onSimulateSamplePhoto={handleSimulateSamplePhoto}
             onRealImageUpload={handleRealImageUpload}
             onConfirmSave={(prod, dt) => void handleConfirmSave(prod, dt)}

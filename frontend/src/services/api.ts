@@ -28,25 +28,21 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      resolve(result.includes(',') ? result.split(',')[1] : result);
+    };
+    reader.onerror = () => reject(new Error('Falha ao converter imagem para base64.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export const apiClient = {
   getHealth(): Promise<HealthStatus> {
     return requestJson<HealthStatus>('/api/health');
-  },
-
-  configureGemini(
-    apiKey: string,
-    model = 'gemini-3.5-flash-lite'
-  ): Promise<{
-    ok: boolean;
-    geminiConfigured: boolean;
-    geminiModel: string;
-    latencyMs: number;
-    message: string;
-  }> {
-    return requestJson('/api/config/gemini', {
-      method: 'POST',
-      body: JSON.stringify({ apiKey, model }),
-    });
   },
 
   async listPantry(): Promise<{ storageMode: 'supabase' | 'local-json'; items: EnrichedPantryItem[] }> {
@@ -90,12 +86,15 @@ export const apiClient = {
   },
 
   async analyzeImage(file: File): Promise<{ extracted: OcrExtractionResult }> {
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('autoSave', 'false');
+    const base64Image = await fileToBase64(file);
     return requestJson<{ extracted: OcrExtractionResult }>('/api/ocr/analyze', {
       method: 'POST',
-      body: formData,
+      body: JSON.stringify({
+        base64Image,
+        mimeType: file.type || 'image/jpeg',
+        fileName: file.name,
+        autoSave: false,
+      }),
     });
   },
 
@@ -113,10 +112,13 @@ export const apiClient = {
     });
   },
 
-  async runCron(source = 'web_dashboard'): Promise<CronRunResult> {
+  async runCron(
+    source = 'web_dashboard',
+    items?: EnrichedPantryItem[]
+  ): Promise<CronRunResult> {
     return requestJson<CronRunResult>('/api/cron/run', {
       method: 'POST',
-      body: JSON.stringify({ source, dispatchExternal: false }),
+      body: JSON.stringify({ source, dispatchExternal: false, items }),
     });
   },
 
