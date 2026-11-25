@@ -33,6 +33,10 @@ export interface OcrExtractionResult {
   data_validade: string;
   confianca_ocr: string;
   lote_ou_obs: string;
+  contexto_imagem?: string;
+  estado_conservacao?: string;
+  dica_conservacao?: string;
+  sugestao_uso?: string;
   aiMode?: 'gemini' | 'fallback';
   modelUsed?: string;
   latencyMs?: number;

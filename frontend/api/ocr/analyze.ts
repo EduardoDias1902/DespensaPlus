@@ -58,9 +58,23 @@ const OCR_SCHEMA = {
     categoria: { type: 'string', enum: [...VALID_CATEGORIES] },
     data_validade: { type: 'string' },
     confianca_ocr: { type: 'string' },
+    contexto_imagem: { type: 'string' },
+    estado_conservacao: { type: 'string' },
+    dica_conservacao: { type: 'string' },
+    sugestao_uso: { type: 'string' },
     lote_ou_obs: { type: 'string' },
   },
-  required: ['produto', 'categoria', 'data_validade', 'confianca_ocr', 'lote_ou_obs'],
+  required: [
+    'produto',
+    'categoria',
+    'data_validade',
+    'confianca_ocr',
+    'contexto_imagem',
+    'estado_conservacao',
+    'dica_conservacao',
+    'sugestao_uso',
+    'lote_ou_obs',
+  ],
 };
 
 export default async function handler(req: VercelReq, res: VercelRes) {
@@ -94,8 +108,9 @@ export default async function handler(req: VercelReq, res: VercelRes) {
         categoria: 'Mercearia',
         data_validade: addDaysToToday(5),
         confianca_ocr: 'Demo',
-        lote_ou_obs:
-          'Configure GEMINI_API_KEY nas Environment Variables da Vercel para ativar identificação visual real.',
+        contexto_imagem:
+          'Modo demonstração ativo na Vercel — adicione GEMINI_API_KEY nas Environment Variables do projeto na Vercel e faça Redeploy para analisar o contexto real da foto.',
+        lote_ou_obs: 'GEMINI_API_KEY não definida no ambiente Vercel.',
         aiMode: 'fallback',
         modelUsed: 'local-fallback',
         latencyMs: Date.now() - startedAt,
@@ -113,14 +128,18 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const interaction = await client.interactions.create({
       model,
       system_instruction: `Você é um especialista em Visão Computacional de Alimentos, Nutrição e OCR de embalagens no Brasil. Data de hoje: ${todayBr}.
-Identifique com precisão o alimento, fruta, bebida ou suplemento mostrado na foto.
-Se houver data impressa/carimbada (DD/MM/AAAA ou MM/AAAA), extraia-a em DD/MM/AAAA (MM/AAAA vira último dia do mês).
-Se for alimento sem embalagem/data (ex: fruta, legume, pão, queijo), estime uma validade realista a partir de ${todayBr} pela aparência/maturação e explique em lote_ou_obs.
-Categoria deve ser estritamente: "Suplemento", "Grãos & Cereais", "Laticínios", "Hortifruti", "Mercearia" ou "Geral".`,
+Analise detalhadamente o CONTEXTO VISUAL completo da foto:
+1. Identifique exatamente o alimento, fruta, bebida ou suplemento (marca, sabor, quantidade aproximada). Se NÃO for alimento, descreva o que realmente aparece na imagem.
+2. Em contexto_imagem, descreva de forma rica e natural o que você vê (cor, formato, frescor/maturação, se está embalado, lacrado, aberto ou in natura, cenário).
+3. Em estado_conservacao, avalie o estado visual atual (ex: "Fresco e firme", "Maduro — consumir em 2-3 dias", "Embalagem lacrada").
+4. Em dica_conservacao, dê uma dica prática de armazenamento.
+5. Em sugestao_uso, sugira uma forma rápida de consumir ou preparar esse item.
+6. Em data_validade, extraia a validade impressa (DD/MM/AAAA ou MM/AAAA -> último dia do mês) ou, se não houver data visível, estime realisticamente a partir de ${todayBr} conforme o tipo e aparência.
+7. Categoria deve ser estritamente: "Suplemento", "Grãos & Cereais", "Laticínios", "Hortifruti", "Mercearia" ou "Geral".`,
       input: [
         {
           type: 'text',
-          text: 'Identifique o alimento/produto nesta imagem, categoria e validade (DD/MM/AAAA):',
+          text: 'Analise o contexto visual completo desta foto, identifique o alimento/produto, estado de conservação, dicas e validade (DD/MM/AAAA):',
         },
         {
           type: 'image',
@@ -151,6 +170,10 @@ Categoria deve ser estritamente: "Suplemento", "Grãos & Cereais", "Laticínios"
       categoria?: string;
       data_validade?: string;
       confianca_ocr?: string;
+      contexto_imagem?: string;
+      estado_conservacao?: string;
+      dica_conservacao?: string;
+      sugestao_uso?: string;
       lote_ou_obs?: string;
     };
 
@@ -165,6 +188,10 @@ Categoria deve ser estritamente: "Suplemento", "Grãos & Cereais", "Laticínios"
         categoria: validCategory,
         data_validade: normalizeBrDate(parsed.data_validade),
         confianca_ocr: (parsed.confianca_ocr || '96%').trim(),
+        contexto_imagem: parsed.contexto_imagem?.trim(),
+        estado_conservacao: parsed.estado_conservacao?.trim(),
+        dica_conservacao: parsed.dica_conservacao?.trim(),
+        sugestao_uso: parsed.sugestao_uso?.trim(),
         lote_ou_obs: (parsed.lote_ou_obs || 'Identificado via Gemini Vision.').trim(),
         aiMode: 'gemini',
         modelUsed: model,

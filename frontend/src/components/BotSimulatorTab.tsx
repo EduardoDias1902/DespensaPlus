@@ -384,6 +384,14 @@ export function BotSimulatorTab({
                             {msg.extracted.data_validade}
                           </span>
                         </div>
+                        {msg.extracted.estado_conservacao && (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-400">Estado Visual:</span>
+                            <span className="text-emerald-300 font-medium text-right">
+                              {msg.extracted.estado_conservacao}
+                            </span>
+                          </div>
+                        )}
                         {msg.extracted.latencyMs !== undefined && (
                           <div className="flex justify-between items-center gap-2 text-[11px]">
                             <span className="text-slate-400">Latência (RNF01 &lt; 10s):</span>
@@ -391,6 +399,26 @@ export function BotSimulatorTab({
                               {(msg.extracted.latencyMs / 1000).toFixed(2)}s
                             </span>
                           </div>
+                        )}
+                        {msg.extracted.contexto_imagem && (
+                          <div className="pt-2 border-t border-slate-800 space-y-1">
+                            <p className="text-[11px] font-semibold text-sky-300">
+                              👁️ Contexto da Imagem:
+                            </p>
+                            <p className="text-[11px] text-slate-200 leading-relaxed">
+                              {msg.extracted.contexto_imagem}
+                            </p>
+                          </div>
+                        )}
+                        {msg.extracted.dica_conservacao && (
+                          <p className="text-[11px] text-emerald-200/90 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg">
+                            ❄️ <strong>Conservação:</strong> {msg.extracted.dica_conservacao}
+                          </p>
+                        )}
+                        {msg.extracted.sugestao_uso && (
+                          <p className="text-[11px] text-amber-200/90 bg-amber-500/10 px-2.5 py-1.5 rounded-lg">
+                            🍽️ <strong>Ideia rápida:</strong> {msg.extracted.sugestao_uso}
+                          </p>
                         )}
                         {msg.extracted.lote_ou_obs && (
                           <p className="text-[11px] text-slate-400 pt-1 border-t border-slate-800">

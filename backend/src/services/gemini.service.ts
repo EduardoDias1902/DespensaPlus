@@ -68,7 +68,7 @@ const OCR_JSON_SCHEMA = {
     produto: {
       type: 'string',
       description:
-        'Nome específico do alimento, bebida ou suplemento identificado visualmente na foto (ex: "Banana Prata Madura", "Whey Protein Concentrado Chocolate 900g", "Maçã Gala", "Leite Integral Italac 1L").',
+        'Nome específico do alimento, fruta, bebida ou suplemento identificado visualmente na foto.',
     },
     categoria: {
       type: 'string',
@@ -83,13 +83,41 @@ const OCR_JSON_SCHEMA = {
       type: 'string',
       description: 'Percentual estimado de confiança da identificação visual/OCR (ex: 97%).',
     },
+    contexto_imagem: {
+      type: 'string',
+      description:
+        'Descrição clara e detalhada do contexto visual da foto: o que aparece, quantidade aproximada, se está embalado/aberto/in natura, aparência, cor, maturação ou marca visível.',
+    },
+    estado_conservacao: {
+      type: 'string',
+      description:
+        'Avaliação visual do estado atual (ex: "Fresco e firme", "Maduro — consumir em breve", "Embalagem lacrada", "Aberto/parcial").',
+    },
+    dica_conservacao: {
+      type: 'string',
+      description: 'Recomendação prática de armazenamento para durar mais tempo.',
+    },
+    sugestao_uso: {
+      type: 'string',
+      description: 'Ideia rápida de preparo ou consumo adequada a este alimento.',
+    },
     lote_ou_obs: {
       type: 'string',
       description:
-        'Explique claramente o que foi visto na imagem: se a validade foi lida do carimbo/rótulo ou se foi estimada pela aparência/maturação do alimento, além de uma breve dica de conservação.',
+        'Informe se a data foi lida de carimbo/rótulo impresso ou estimada pela aparência visual.',
     },
   },
-  required: ['produto', 'categoria', 'data_validade', 'confianca_ocr', 'lote_ou_obs'],
+  required: [
+    'produto',
+    'categoria',
+    'data_validade',
+    'confianca_ocr',
+    'contexto_imagem',
+    'estado_conservacao',
+    'dica_conservacao',
+    'sugestao_uso',
+    'lote_ou_obs',
+  ],
 };
 
 const RECIPES_JSON_SCHEMA = {
@@ -212,18 +240,21 @@ class GeminiService {
 
     const todayBr = addDaysToToday(0);
     const systemInstruction = `Você é um especialista em Visão Computacional de Alimentos, Nutrição e OCR de embalagens no Brasil.
-Analise visualmente a foto enviada pelo usuário e identifique com precisão o alimento, bebida ou suplemento mostrado.
+Analise detalhadamente o CONTEXTO VISUAL completo da foto enviada pelo usuário.
 Data de hoje: ${todayBr}.
 
 Regras obrigatórias:
-1. IDENTIFICAÇÃO DO ALIMENTO:
-   - Se for um produto embalado: identifique marca, nome comercial, sabor e peso quando visíveis (ex: "Pasta de Amendoim Integral Power1One 500g", "Whey Protein Concentrado Chocolate").
-   - Se for um alimento in natura, fruta, legume, pão, queijo, carne ou item sem embalagem: identifique exatamente qual alimento é e seu estado aparente (ex: "Banana Prata Madura", "Tomate Italiano Fresco", "Ovos Brancos", "Maçã Fuji").
-   - Se a foto NÃO mostrar um alimento ou suplemento, informe claramente no campo produto (ex: "Objeto não alimentício identificado: <descrição>") e explique em lote_ou_obs.
-2. DATA DE VALIDADE (RNF02):
-   - Se houver data impressa ou carimbada ("VAL", "V:", "VALIDADE", carimbo pontilhado): extraia exatamente no formato DD/MM/AAAA. Se estiver apenas MM/AAAA (ex: 12/2026), converta para o último dia do mês (31/12/2026).
-   - Se NÃO houver data impressa visível (ex: fruta, verdura ou frente da embalagem sem validade): ESTIME uma data de validade realista a partir de hoje (${todayBr}) com base no tipo de alimento e aparência/maturação (ex: banana madura +3 dias, maçã +10 dias, pão de forma +5 dias, folha verde +4 dias, produto seco fechado +90 dias) e deixe explícito em lote_ou_obs que a validade foi estimada visualmente.
-3. CATEGORIA: escolha estritamente entre "Suplemento", "Grãos & Cereais", "Laticínios", "Hortifruti", "Mercearia", "Geral".
+1. PRODUTO / ALIMENTO:
+   - Se for produto embalado: identifique marca, nome comercial, sabor e peso quando visíveis.
+   - Se for alimento in natura (fruta, legume, pão, queijo, carne, ovos, etc.): identifique o alimento exato e variedade aparente (ex: "Maçã Vermelha Gala", "Banana Prata Madura").
+   - Se NÃO for alimento/suplemento, informe claramente o que realmente aparece na foto.
+2. CONTEXTO DA IMAGEM (contexto_imagem): descreva de forma clara e rica o que aparece na foto (aparência, cor, quantidade, se está embalado/aberto/in natura, maturação e cenário).
+3. ESTADO VISUAL (estado_conservacao): avalie frescor/maturação ou condição da embalagem (ex: "Fresco e firme", "Maduro — consumir em breve", "Embalagem lacrada").
+4. CONSERVAÇÃO (dica_conservacao) e USO (sugestao_uso): dê 1 dica prática de armazenamento e 1 ideia rápida de preparo/consumo.
+5. DATA DE VALIDADE (RNF02):
+   - Se houver data impressa/carimbada (DD/MM/AAAA ou MM/AAAA), extraia em DD/MM/AAAA (MM/AAAA vira último dia do mês).
+   - Se NÃO houver data impressa visível, estime uma data realista a partir de ${todayBr} conforme o tipo e aparência do alimento e explique em lote_ou_obs.
+6. CATEGORIA: escolha estritamente entre "Suplemento", "Grãos & Cereais", "Laticínios", "Hortifruti", "Mercearia", "Geral".
 Retorne ESTRITAMENTE JSON válido conforme o schema.`;
 
     try {
@@ -266,6 +297,10 @@ Retorne ESTRITAMENTE JSON válido conforme o schema.`;
         categoria?: string;
         data_validade?: string;
         confianca_ocr?: string;
+        contexto_imagem?: string;
+        estado_conservacao?: string;
+        dica_conservacao?: string;
+        sugestao_uso?: string;
         lote_ou_obs?: string;
       };
 
@@ -278,6 +313,10 @@ Retorne ESTRITAMENTE JSON válido conforme o schema.`;
         categoria: sanitizeCategory(parsed.categoria),
         data_validade: normalizedDate,
         confianca_ocr: (parsed.confianca_ocr || '95%').trim(),
+        contexto_imagem: parsed.contexto_imagem?.trim(),
+        estado_conservacao: parsed.estado_conservacao?.trim(),
+        dica_conservacao: parsed.dica_conservacao?.trim(),
+        sugestao_uso: parsed.sugestao_uso?.trim(),
         lote_ou_obs: (
           parsed.lote_ou_obs || 'Identificação visual concluída via Gemini Vision.'
         ).trim(),
